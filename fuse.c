@@ -11,11 +11,86 @@
 #include <dirent.h>
 #include <limits.h>
 #include <sys/time.h>
+#define MAX_TRACKED_PIDS 100 // 최대 추적 가능 프로세스 개수 (제한적)
+#define KILL_THRESHOLD 80    // Malice Score 강제 종료 임계값 (예시)
 
 static int base_fd = -1;
 
 // 실제 백엔드 디렉터리 경로를 저장할 변수
 static const char *dirpath;
+
+// PID별 Malice Score 및 행동 정보를 저장할 구조체
+typedef struct {
+    pid_t pid;             // 프로세스 ID
+    int malice_score;      // 누적 악성도 점수
+    time_t last_write_time; // 마지막 쓰기 연산 시각 (빈도 탐지용)
+    char proc_name[32];  // (선택 사항) 프로세스 이름 저장
+} ProcessScore;
+
+// 전역 Score 테이블 (배열로 구현)
+ProcessScore g_score_table[MAX_TRACKED_PIDS];
+int g_process_count = 0; // 현재 추적 중인 프로세스 개수
+
+// ProcessScore 엔트리를 찾거나 새로 생성하여 포인터를 반환
+ProcessScore* find_or_create_score_entry(pid_t pid) {
+    // 1. 기존 엔트리 검색
+    for (int i = 0; i < g_process_count; i++) {
+        if (g_score_table[i].pid == pid) {
+            // PID가 이미 존재하면 해당 엔트리 반환
+            return &g_score_table[i];
+        }
+    }
+    
+    // 2. 새 엔트리 생성
+    if (g_process_count < MAX_TRACKED_PIDS) {
+        ProcessScore *new_entry = &g_score_table[g_process_count];
+        // 새로운 엔트리 초기화
+        new_entry->pid = pid;
+        new_entry->malice_score = 0;
+        new_entry->last_write_time = time(NULL);
+        g_process_count++; // 추적 중인 프로세스 수 증가
+        
+        // fprintf(stderr, "Malice Score: 새 PID %d 추적 시작.\n", pid); // 디버깅용
+        return new_entry;
+    }
+    
+    // 3. 배열이 가득 찼을 때 (오류 처리: 널 포인터 반환)
+    fprintf(stderr, "오류: 최대 PID 추적 개수 초과!\n");
+    return NULL;
+}
+
+// 특정 PID의 Malice Score를 업데이트하고 마지막 쓰기 시간을 갱신
+void update_malice_score(pid_t pid, int added_score) {
+    ProcessScore *entry = find_or_create_score_entry(pid);
+    
+    if (entry) {
+        entry->malice_score += added_score;
+        entry->last_write_time = time(NULL); // 쓰기 연산이 발생했으므로 시간 갱신
+        
+        // 디버깅용 로그
+        // fprintf(stderr, "PID %d Score 갱신: +%d점, 누적: %d점\n", 
+        //         pid, added_score, entry->malice_score);
+    }
+}
+
+// 특정 PID의 Malice Score를 반환
+int get_malice_score(pid_t pid) {
+    ProcessScore *entry = find_or_create_score_entry(pid);
+    if (entry) {
+        return entry->malice_score;
+    }
+    return 0; // 엔트리를 찾지 못하면 0점 반환
+}
+
+// 프로세스 종료 시 또는 안전 확인 후 Score를 0으로 초기화
+void reset_malice_score(pid_t pid) {
+    ProcessScore *entry = find_or_create_score_entry(pid);
+    if (entry) {
+        entry->malice_score = 0;
+        // 배열에서 엔트리를 제거하는 로직은 복잡하므로, 단순하게 0으로 초기화만 합니다.
+        // fprintf(stderr, "PID %d Score 초기화.\n", pid); // 디버깅용
+    }
+}
 
 
 static void get_relative_path(const char *path, char *relpath) {
