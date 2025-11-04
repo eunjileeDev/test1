@@ -25,7 +25,7 @@ typedef struct {
     pid_t pid;             // 프로세스 ID
     int malice_score;      // 누적 악성도 점수
     time_t last_write_time; // 마지막 쓰기 연산 시각 (빈도 탐지용)
-    char proc_name[32];  // (선택 사항) 프로세스 이름 저장
+    char proc_name[32];  //  프로세스 이름 저장
 } ProcessScore;
 
 // 전역 Score 테이블 (배열로 구현)
