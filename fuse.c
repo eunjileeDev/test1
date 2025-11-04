@@ -17,8 +17,6 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <unistd.h>
-#include "entropy.h" // 엔트로피 계산 선언
-#include "analyzer.h" // 최종 모니터링 함수 선언
 
 #define MAX_TRACKED_PIDS 100 // 최대 추적 가능 프로세스 개수 (제한적)
 #define KILL_THRESHOLD 80    // Malice Score 강제 종료 임계값 ((임시))
@@ -42,6 +40,10 @@ int g_process_count = 0; // 현재 추적 중인 프로세스 개수
 ProcessScore* find_or_create_score_entry(pid_t pid);
 void update_malice_score(pid_t pid, int added_score);
 int get_malice_score(pid_t pid);
+
+//함수 선언(.h대신 직접 선언)
+double calculate_entropy(const char *buffer, size_t size);
+int monitor_operation(const char* operation, const char* buf, size_t size, pid_t current_pid);
 
 //entropy로직(entropy.c통합함)
 double calculate_entropy(const char *buffer, size_t size){
