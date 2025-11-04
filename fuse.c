@@ -244,6 +244,10 @@ static int myfs_write(const char *path, const char *buf, size_t size, off_t offs
 // release 함수 구현
 static int myfs_release(const char *path, struct fuse_file_info *fi) {
     close(fi->fh);
+    struct fuse_context *context = fuse_get_context();
+    pid_t current_pid = context->pid;
+
+    reset_malice_score(current_pid); //파일 닫으면 해당 p의 score초기화
     return 0;
 }
 
@@ -375,11 +379,8 @@ int main(int argc, char *argv[]) {
 	perror("Error opening backend directory");
 	return -1;
     }
-    
-    // [중요 수정]: 마운트 포인트에 대한 realpath 호출 및 free를 제거하여
-    //             PPT 원본 코드의 잠재적인 경로 오류를 해결했습니다.
-    
-    // 3. FUSE 파일시스템 실행 (마운트 포인트는 argv[argc-1] 인수가 사용됨)
+
+    // FUSE 파일시스템 실행
     int ret = fuse_main(args.argc, args.argv, &myfs_oper, NULL);
 
     close(base_fd);
