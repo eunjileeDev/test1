@@ -11,13 +11,14 @@
 #include <dirent.h>
 #include <limits.h>
 #include <sys/time.h>
+#include <signal.h>
+#include <sys/types.h>
+
 #define MAX_TRACKED_PIDS 100 // 최대 추적 가능 프로세스 개수 (제한적)
-#define KILL_THRESHOLD 80    // Malice Score 강제 종료 임계값 (예시)
+#define KILL_THRESHOLD 80    // Malice Score 강제 종료 임계값 ((임시))
 
 static int base_fd = -1;
 
-// 실제 백엔드 디렉터리 경로를 저장할 변수
-static const char *dirpath;
 
 // PID별 Malice Score 및 행동 정보를 저장할 구조체
 typedef struct {
@@ -66,10 +67,6 @@ void update_malice_score(pid_t pid, int added_score) {
     if (entry) {
         entry->malice_score += added_score;
         entry->last_write_time = time(NULL); // 쓰기 연산이 발생했으므로 시간 갱신
-        
-        // 디버깅용 로그
-        // fprintf(stderr, "PID %d Score 갱신: +%d점, 누적: %d점\n", 
-        //         pid, added_score, entry->malice_score);
     }
 }
 
@@ -92,6 +89,18 @@ void reset_malice_score(pid_t pid) {
     }
 }
 
+//탐지 분석 로직(재린) 임시!
+int calculate_malice_points(pid_t current_pid, const char *buf, size_t size) {
+    // ----------------------------------------------------------------------
+    // TODO: A 역할이 이 함수를 구현해야 합니다.
+    // 1. buf와 size를 이용한 엔트로피 계산 (Content-based)
+    // 2. loggedfs 로그 분석을 통한 행동 빈도 측정 (Behavior-based)
+    // 3. 계산된 악성 점수를 반환합니다.
+    // ----------------------------------------------------------------------
+    
+    // 점검용 코드를 제거하고, 기본 점수 0을 반환합니다.
+    return 0; 
+}
 
 static void get_relative_path(const char *path, char *relpath) {
     if (strcmp(path, "/") == 0 || strcmp(path, "") == 0) {
@@ -199,12 +208,36 @@ static int myfs_read(const char *path, char *buf, size_t size, off_t offset,
 // write 함수 구현
 static int myfs_write(const char *path, const char *buf, size_t size, off_t offset,
                       struct fuse_file_info *fi) {
+    // 1. PID 획득
+    struct fuse_context *context = fuse_get_context();
+    pid_t current_pid = context->pid;
+    
+    // 2. Score 계산 및 갱신
+    int added_score = calculate_malice_points(current_pid, buf, size);
+
+    update_malice_score(current_pid, added_score);
+    
+    // 원래 점검용 로그 있었음
+    
+    // 3. 최종 제어 및 제한 조치 (Kill)
+    if (get_malice_score(current_pid) >= KILL_THRESHOLD) {
+        fprintf(stderr, "[KILL] 랜섬웨어 행동 임계값 초과! PID %d 강제 종료됩니다.\n", current_pid);
+        
+        // **제한 조치: 강제 종료 실행**
+        if (kill(current_pid, SIGKILL) == -1) {
+            fprintf(stderr, "킬 명령어 실패: %s\n", strerror(errno));
+        }
+
+        // 쓰기 연산 차단 및 에러 반환
+        return -EIO; 
+    }
+
+    // 4. 정상 연산 실행 (Pass-through)
     int res;
-
     res = pwrite(fi->fh, buf, size, offset);
-    if (res == -1)
+    if (res == -1) {
         res = -errno;
-
+    }
     return res;
 }
 
@@ -323,17 +356,30 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    // 마운트하기 전에 마운트 포인트 디렉터리를 엽니다.
-    base_fd = open(mountpoint, O_RDONLY | O_DIRECTORY);
-    if (base_fd == -1) {
-        perror("open");
-        free(mountpoint);
+    // 1. 과제에서 지정한 공격 및 보호 대상 경로 획득 (백엔드 경로)
+    const char *home_dir = getenv("HOME");
+    if (!home_dir) {
+    	fprintf(stderr, "Error: HOME environment variable not set.\n");
         return -1;
     }
+    
+    char backend_path[PATH_MAX];
+    // '/home/계정명/workspace/target' 경로 구성
+    snprintf(backend_path, PATH_MAX, "%s/workspace/target", home_dir);
 
-    free(mountpoint);
-
-    // FUSE 파일시스템 실행
+    // 2. 백엔드 디렉터리를 엽니다. (base_fd 획득)
+    fprintf(stderr, "INFO: Protecting backend path: %s\n", backend_path);
+    
+    base_fd = open(backend_path, O_RDONLY | O_DIRECTORY);
+    if (base_fd == -1) {
+	perror("Error opening backend directory");
+	return -1;
+    }
+    
+    // [중요 수정]: 마운트 포인트에 대한 realpath 호출 및 free를 제거하여
+    //             PPT 원본 코드의 잠재적인 경로 오류를 해결했습니다.
+    
+    // 3. FUSE 파일시스템 실행 (마운트 포인트는 argv[argc-1] 인수가 사용됨)
     int ret = fuse_main(args.argc, args.argv, &myfs_oper, NULL);
 
     close(base_fd);
