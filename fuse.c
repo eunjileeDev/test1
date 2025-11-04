@@ -184,7 +184,7 @@ static int check_frequency_and_alert(pid_t current_pid){
         rename_count = 0;
         start_time = current_time;
         
-        return is_malicious;
+        return penalty_score;
 }
 
 int monitor_operation(const char* operation, const char* buf, size_t size){
@@ -354,29 +354,27 @@ static int myfs_read(const char *path, char *buf, size_t size, off_t offset,
 // write 함수 구현
 static int myfs_write(const char *path, const char *buf, size_t size, off_t offset,
                       struct fuse_file_info *fi) {
-    // 1. PID 획득
+    // PID 획득
     struct fuse_context *context = fuse_get_context();
     pid_t current_pid = context->pid;
     
-    // 2. Score 계산 및 Kill 판단 (친구 코드 통합)
-    // monitor_operation 호출: 악성 판단 시 1을 반환합니다.
-    int is_malicious = monitor_operation("WRITE", buf, size, current_pid);
+    /// 1. A 역할로부터 1초간 누적된 '벌점'을 받음 (Penalty Score)
+    int penalty_score = monitor_operation("WRITE", buf, size, current_pid);
 
-    // ************* B 역할의 Malice Score 갱신/Kill 로직 변경 *************
-    // A 역할 코드는 자체적으로 Score를 관리하고 최종 악성 여부(1/0)만 반환하도록 설계되었습니다.
-    // 따라서 B 역할은 Score 누적 대신 'is_malicious'만 확인하여 Kill을 실행합니다.
+    // 2. B 역할의 PID별 누적 Score에 벌점을 반영
+    update_malice_score(current_pid, penalty_score);
 
-    if (is_malicious == 1) { // A 역할의 monitor_operation이 악성으로 판단했으면
-        fprintf(stderr, "[KILL] 랜섬웨어 행동 탐지 완료! PID %d 강제 종료됩니다.\n", current_pid);
+    / 3. 최종 Kill 판단
+    if (get_malice_score(current_pid) >= KILL_THRESHOLD) {
+        fprintf(stderr, "[KILL] 최종 누적 점수 %d, 임계값 %d 초과! PID %d 강제 종료.\n", 
+                get_malice_score(current_pid), KILL_THRESHOLD, current_pid);
         
-        // 제한 조치: 강제 종료 실행
         if (kill(current_pid, SIGKILL) == -1) {
             fprintf(stderr, "킬 명령어 실패: %s\n", strerror(errno));
         }
-
-        // 쓰기 연산 차단 및 에러 반환
         return -EIO; 
     }
+
 
     // 3. 정상 연산 실행 (Pass-through)
     int res;
@@ -403,8 +401,11 @@ static int myfs_unlink(const char *path) {
     struct fuse_context *context = fuse_get_context();
     pid_t current_pid = context->pid;
 
-    if (monitor_operation("UNLINK", NULL, 0, current_pid) == 1) {
-        fprintf(stderr, "[KILL] UNLINK 행동 탐지! PID %d 강제 종료됩니다.\n", current_pid);
+    int penalty_score = monitor_operation("UNLINK", NULL, 0, current_pid);
+    update_malice_score(current_pid, penalty_score); // 벌점 누적
+
+    if (get_malice_score(current_pid) >= KILL_THRESHOLD) {
+        fprintf(stderr, "🚨 [KILL] UNLINK 누적 점수 초과! PID %d 강제 종료.\n", current_pid);
         if (kill(current_pid, SIGKILL) == -1) {
             fprintf(stderr, "킬 명령어 실패: %s\n", strerror(errno));
         }
@@ -451,8 +452,11 @@ static int myfs_rename(const char *from, const char *to, unsigned int flags) {
     struct fuse_context *context = fuse_get_context();
     pid_t current_pid = context->pid;
 
-    if (monitor_operation("RENAME", NULL, 0, current_pid) == 1) {
-        fprintf(stderr, "[KILL] RENAME 행동 탐지! PID %d 강제 종료됩니다.\n", current_pid);
+    int penalty_score = monitor_operation("RENAME", NULL, 0, current_pid);
+    update_malice_score(current_pid, penalty_score); // 벌점 누적
+
+    if (get_malice_score(current_pid) >= KILL_THRESHOLD) {
+        fprintf(stderr, "[KILL] RENAME 누적 점수 초과! PID %d 강제 종료.\n", current_pid);
         if (kill(current_pid, SIGKILL) == -1) {
             fprintf(stderr, "킬 명령어 실패: %s\n", strerror(errno));
         }
