@@ -15,7 +15,6 @@
 #include <sys/types.h>
 #include <math.h>
 #include <stddef.h>
-#include <stdio.h>
 #include <unistd.h>
 
 #define MAX_TRACKED_PIDS 100 // 최대 추적 가능 프로세스 개수 (제한적)
@@ -407,7 +406,7 @@ static int myfs_unlink(const char *path) {
     update_malice_score(current_pid, penalty_score); // 벌점 누적
 
     if (get_malice_score(current_pid) >= KILL_THRESHOLD) {
-        fprintf(stderr, "🚨 [KILL] UNLINK 누적 점수 초과! PID %d 강제 종료.\n", current_pid);
+        fprintf(stderr, "[KILL] UNLINK 누적 점수 초과! PID %d 강제 종료.\n", current_pid);
         if (kill(current_pid, SIGKILL) == -1) {
             fprintf(stderr, "킬 명령어 실패: %s\n", strerror(errno));
         }
