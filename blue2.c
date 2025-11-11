@@ -14,6 +14,10 @@
 #include <signal.h>
 #include <sys/types.h>
 #include "analyzer.h" // (재린 추가함) 스코어 계산하는 함수
+//////
+#include "analyzer.h"
+#include "restore.h"
+////
 #define KILL_THRESHOLD 80    // Malice Score 강제 종료 임계값 ((임시))
 
 static int base_fd = -1;
@@ -387,6 +391,15 @@ int main(int argc, char *argv[]) {
 	perror("Error opening backend directory");
 	return -1;
     }
+    
+
+    //////////
+    // **[복구] 초기화(경로) 호출**
+    if (restore_init(home_dir, backend_path) != 0) {
+        close(base_fd);
+        return -1;
+    }
+    ///////////////
 
     // FUSE 파일시스템 실행
     int ret = fuse_main(args.argc, args.argv, &myfs_oper, NULL);
