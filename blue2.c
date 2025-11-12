@@ -13,12 +13,11 @@
 #include <sys/time.h>
 #include <signal.h>
 #include <sys/types.h>
-//////
-#include "analyzer.h"
-#include "restore.h"
-////
+#include "restore.h" //[RESTORE]
 #include "analyzer.h" // (재린 추가함) 스코어 계산하는 함수
 #define KILL_THRESHOLD 80    // Malice Score 강제 종료 임계값 ((임시))
+
+//이은지 추가 부분 : [RESTORE] 검색
 
 static int base_fd = -1;
 
@@ -252,6 +251,9 @@ static int myfs_write(const char *path, const char *buf, size_t size, off_t offs
     if (!is_writable_whitelisted(path)) {
         return -EACCES; // 화이트리스트에 없으면 접근 거부
     }
+
+    // [RESTORE] 백업 함수 호출(쓰기 직전의 원본 확보)
+    restore_backup_on_write(path, base_fd);
     
     // PID 획득
     struct fuse_context *context = fuse_get_context();
@@ -267,6 +269,9 @@ static int myfs_write(const char *path, const char *buf, size_t size, off_t offs
     if (get_malice_score(current_pid) >= KILL_THRESHOLD) {
         fprintf(stderr, "Kill ! 'write' 임계값 초과! PID %d 강제 종료\n", current_pid);
         
+        //[RESTORE] 복구 함수 호출(KILL 됐을 때 원본 덮어쓰기)
+        restore_backup_file(path, base_fd);
+
         // 강제 종료 실행
         if (kill(current_pid, SIGKILL) == -1) {
             fprintf(stderr, "킬 명령어 실패: %s\n", strerror(errno));
@@ -310,6 +315,10 @@ static int myfs_unlink(const char *path) {
    
     if(get_malice_score(current_pid) >= KILL_THRESHOLD) {//(if 문 전체 새로 추가)
 	    fprintf(stderr, "Kill ! 'unlink' 임계값 초과! PID %d 강제종료\n", current_pid);
+
+        //[RESTORE] 복구 함수 호출(KILL됐을 때 원본 복구)
+        restore_backup_file(path, base_fd);
+
 	    if(kill(current_pid,SIGKILL) == -1){
 		    fprintf(stderr, " 킬명령어 실패:%s\n", strerror(errno));
 	    }
@@ -367,6 +376,10 @@ static int myfs_rename(const char *from, const char *to, unsigned int flags) {
 
     if(get_malice_score(current_pid) >= KILL_THRESHOLD) {//(if 문 전체 새로 추가)
             fprintf(stderr, "Kill ! 'rename' 임계값 초과! PID %d 강제종료\n", current_pid);
+            
+            //[RESTORE] 복구 함수 호출 ('from' 경로에 원본을 복원)
+            restore_backup_file(from, base_fd);
+            
             if(kill(current_pid,SIGKILL) == -1){
                     fprintf(stderr, " 킬명령어 실패:%s\n", strerror(errno));
             }
@@ -460,13 +473,12 @@ int main(int argc, char *argv[]) {
 	return -1;
     }
 
-    //////////
-    // **[복구] 초기화(경로) 호출**
+ 
+    // [RESTORE] 초기화(경로) 호출
     if (restore_init(home_dir, backend_path) != 0) {
         close(base_fd);
         return -1;
     }
-    ///////////////
 
     // FUSE 파일시스템 실행
     int ret = fuse_main(args.argc, args.argv, &myfs_oper, NULL);

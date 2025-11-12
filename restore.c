@@ -155,37 +155,37 @@ void restore_backup_file(const char *path, int base_fd) {
 
     struct stat st;
     if (stat(backup_filepath, &st) == -1) {
-        fprintf(stderr, "RESTORE: 롤백 실패: 백업 파일 %s 없음\n", backup_filepath);
+        fprintf(stderr, "RESTORE: 복구 실패: 백업 파일 %s 없음\n", backup_filepath);
         return;
     }
 
-    //롤백 시작 (시간 측정)
+    //복구 시작 (시간 측정)
     struct timeval start_time, end_time;
     gettimeofday(&start_time, NULL);
-    fprintf(stderr, "RESTORE: 롤백 시작... %s\n", path);
+    fprintf(stderr, "RESTORE: 복구 시작... %s\n", path);
 
     //백업 파일 열기 (읽기 전용)
     int src_fd = open(backup_filepath, O_RDONLY);
     if (src_fd == -1) {
-        perror("RESTORE: 롤백 실패: 백업 파일 열기 오류");
+        perror("RESTORE: 복구 실패: 백업 파일 열기 오류");
         return;
     }
 
     // 원본(target) 파일 열기 (덮어쓰기 + 생성)
-    // O_TRUNC: 파일이 존재하면 내용을 지움 (암호화된 내용 삭제)
+    // O_TRUNC: 파일이 존재하면 내용 지움 (암호화된 내용 삭제)
     // O_CREAT: 파일이 unlink로 삭제되었을 경우를 대비해 새로 생성
     int dest_fd = openat(base_fd, relpath, O_WRONLY | O_TRUNC | O_CREAT, 0644);
     if (dest_fd == -1) {
         close(src_fd);
-        perror("RESTORE: 롤백 실패: 원본 파일 열기 오류");
+        perror("RESTORE: 복구 실패: 원본 파일 열기 오류");
         return;
     }
 
-    //데이터 복사 (롤백 실행)
+    //데이터 복사 (복구 실행)
     if (copy_file_data(src_fd, dest_fd) == 0) {
-        fprintf(stderr, "RESTORE: 롤백 성공! 파일이 원본으로 복구됨: %s\n", path);
+        fprintf(stderr, "RESTORE: 복구 성공! 파일이 원본으로 복구됨: %s\n", path);
     } else {
-        fprintf(stderr, "RESTORE: 롤백 중 데이터 복사 오류: %s\n", path);
+        fprintf(stderr, "RESTORE: 복구 중 데이터 복사 오류: %s\n", path);
     }
 
     close(src_fd);
@@ -195,7 +195,7 @@ void restore_backup_file(const char *path, int base_fd) {
     gettimeofday(&end_time, NULL);
     long elapsed_us = (end_time.tv_sec - start_time.tv_sec) * 1000000L +
                       (end_time.tv_usec - start_time.tv_usec);
-    fprintf(stderr, "RESTORE: 롤백 소요 시간: %s: %ld us\n", path, elapsed_us);
+    fprintf(stderr, "RESTORE: 복구 소요 시간: %s: %ld us\n", path, elapsed_us);
 }
 
 
