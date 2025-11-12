@@ -2,7 +2,7 @@
 #include <string.h>
 #include <stddef.h>
 #include "entropy.c"
-#include "analyzer.h "
+#include "analyzer.h"
 #include <time.h>
 #include <stdio.h>
 #include <unistd.h>
