@@ -70,7 +70,31 @@ void restore_backup_file(const char *path, int base_fd) {
     // 5. 시간 측정
 }
 
+//카피 파일 복사 함수
 static int copy_file_data(int src_fd, int dest_fd) {
-    // TODO: 파일 복사 로직 구현 (read/write 반복)
+    #define CHUNK_SIZE 4096 //4KB단위 복사
+    char chunk[CHUNK_SIZE];
+    ssize_t bytes_read;
+
+    //원본 파일 포인터를 맨 앞으로
+    if (lseek(src_fd, 0, SEEK_SET)==-1){
+        perror("RESTORE: 파일 찾기 오류 발생");
+        return -1;
+    }
+
+    //데이터 읽고 쓰기 반복
+    while ((bytes_read = read(src_fd, chunk, CHUNK_SIZE)) > 0)
+    {
+        if(write(dest_fd, chunk, bytes_read) != bytes_read){
+            perror("RESTORE: 목표 파일에 쓰기 실패");
+            return -1;
+        }
+    }
+
+    if (bytes_read == -1) {
+        perror("RESTORE: 파일 읽기 실패");
+        return -1; 
+    }
+    
     return 0; 
 }
