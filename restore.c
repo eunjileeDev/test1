@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <limits.h>
 #include <fcntl.h>
+#include <string.h>
 #include <sys/time.h>
 
 //백업dir 절대 주소(restore_init이 생성한) 저장
@@ -96,7 +97,7 @@ void restore_backup_on_write(const char *path, int base_fd) {
         return;
     }
 
-    //백업 파일 생성 ??(O_EXCL을 사용하여 경합 방지)
+    //백업 파일 생성 (O_EXCL: 파일이 이미 있으면 열지말고 에러처리)
     int dest_fd = open(backup_filepath, O_WRONLY | O_CREAT | O_EXCL, 0600);
     if (dest_fd == -1) {
         close(src_fd);
@@ -122,14 +123,81 @@ void restore_backup_on_write(const char *path, int base_fd) {
     fprintf(stderr, "RESTORE: Backup/CoW time for %s: %ld us\n", path, elapsed_us);
 }
 
+//복구 함수
 void restore_backup_file(const char *path, int base_fd) {
-    // TODO: 롤백 복구 로직 구현
-    // 1. g_backup_dir에 백업 파일이 있는지 확인 (stat)
-    // 2. 있으면, 백업 파일을 열기 (open)
-    // 3. base_fd와 path를 이용해 원본 파일 열기 (openat, O_TRUNC)
-    // 4. copy_file_data()로 내용 덮어쓰기
-    // 5. 시간 측정
+    
+    //루트 디렉토리(/) 자체는 복구 대상 아님
+    if (strcmp(path, "/") == 0) {
+        return;
+    }
+
+    //파일 이름 추출
+    const char *filename = strrchr(path, '/');
+    if (filename) {
+        filename++; // '/' 다음 문자
+    } else {
+        filename = path; // '/'가 없는 경우
+    }
+
+    //백업 파일 경로 설정
+    char backup_filepath[PATH_MAX];
+    snprintf(backup_filepath, PATH_MAX, "%s/%s", g_backup_dir, filename);
+
+    // 원본 파일의 상대 경로 설정 (openat용)
+    char relpath[PATH_MAX];
+    if (path[0] == '/') {
+        strncpy(relpath, path + 1, PATH_MAX - 1);
+        relpath[PATH_MAX - 1] = '\0';
+    } else {
+        strncpy(relpath, path, PATH_MAX - 1);
+        relpath[PATH_MAX - 1] = '\0';
+    }
+
+    struct stat st;
+    if (stat(backup_filepath, &st) == -1) {
+        fprintf(stderr, "RESTORE: 롤백 실패: 백업 파일 %s 없음\n", backup_filepath);
+        return;
+    }
+
+    //롤백 시작 (시간 측정)
+    struct timeval start_time, end_time;
+    gettimeofday(&start_time, NULL);
+    fprintf(stderr, "RESTORE: 롤백 시작... %s\n", path);
+
+    //백업 파일 열기 (읽기 전용)
+    int src_fd = open(backup_filepath, O_RDONLY);
+    if (src_fd == -1) {
+        perror("RESTORE: 롤백 실패: 백업 파일 열기 오류");
+        return;
+    }
+
+    // 원본(target) 파일 열기 (덮어쓰기 + 생성)
+    // O_TRUNC: 파일이 존재하면 내용을 지움 (암호화된 내용 삭제)
+    // O_CREAT: 파일이 unlink로 삭제되었을 경우를 대비해 새로 생성
+    int dest_fd = openat(base_fd, relpath, O_WRONLY | O_TRUNC | O_CREAT, 0644);
+    if (dest_fd == -1) {
+        close(src_fd);
+        perror("RESTORE: 롤백 실패: 원본 파일 열기 오류");
+        return;
+    }
+
+    //데이터 복사 (롤백 실행)
+    if (copy_file_data(src_fd, dest_fd) == 0) {
+        fprintf(stderr, "RESTORE: 롤백 성공! 파일이 원본으로 복구됨: %s\n", path);
+    } else {
+        fprintf(stderr, "RESTORE: 롤백 중 데이터 복사 오류: %s\n", path);
+    }
+
+    close(src_fd);
+    close(dest_fd);
+
+    //시간 측정 결과 출력
+    gettimeofday(&end_time, NULL);
+    long elapsed_us = (end_time.tv_sec - start_time.tv_sec) * 1000000L +
+                      (end_time.tv_usec - start_time.tv_usec);
+    fprintf(stderr, "RESTORE: 롤백 소요 시간: %s: %ld us\n", path, elapsed_us);
 }
+
 
 //카피 파일 복사 함수
 static int copy_file_data(int src_fd, int dest_fd) {
