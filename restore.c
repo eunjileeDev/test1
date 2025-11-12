@@ -6,8 +6,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <limits.h>
+#include <fcntl.h>
+#include <sys/time.h>
 
-//백업dir 주소(restore_init이 생성한) 저장
+//백업dir 절대 주소(restore_init이 생성한) 저장
 static char g_backup_dir[PATH_MAX] = {0};
 
 //파일 복사를 위한 함수 (이후 구현)
@@ -45,7 +47,6 @@ int restore_init(const char *home_dir, const char *target_path) {
         return -1;
     }
     
-    // FUSE 실행 로그에 백업 경로 초기화 완료 메시지 출력
     fprintf(stderr, "RESTORE: 백업 경로 초기화 완료: %s\n", g_backup_dir);
     
     return 0;
@@ -53,12 +54,72 @@ int restore_init(const char *home_dir, const char *target_path) {
 
 // 이후 구현할 함수 일단 정의
 void restore_backup_on_write(const char *path, int base_fd) {
-    // TODO: CoW 백업 로직 구현
-    // 1. g_backup_dir에 백업 파일 이미 있는지 확인 (stat)
-    // 2. 없으면 base_fd와 path 로 원본 파일 열기 (openat)
-    // 3. g_backup_dir에 백업 파일 생성 (open)
-    // 4. copy_file_data()로 내용 복사
-    // 5. 시간 재기
+    //루트 디렉토리(/)자체는 백업하지 않게 함
+    if (strcmp(path, "/") == 0) {
+        return;
+    }
+    //파일이름 추출
+    const char *filename = strrchr(path, '/');
+    if (filename) {
+        filename++; // '/' 다음 문자(파일 이름)
+    } else {
+        filename = path; // '/'가 없는 경우 (경로 자체가 파일 이름)
+    }
+
+    // 백업 파일 경로 설정
+    char backup_filepath[PATH_MAX];
+    snprintf(backup_filepath, PATH_MAX, "%s/%s", g_backup_dir, filename);
+
+    // 백업본 이미 있는지 확인
+    struct stat st;
+    if (stat(backup_filepath, &st) != -1) {
+        return;
+}
+
+    //백업 시작(시간 측정 확인)
+    struct timeval start_time, end_time;
+    gettimeofday(&start_time, NULL);
+
+    //원본 파일 열기
+    char relpath[PATH_MAX];
+    if (path[0] == '/') {
+        strncpy(relpath, path + 1, PATH_MAX - 1);
+        relpath[PATH_MAX - 1] = '\0';
+    } else {
+        strncpy(relpath, path, PATH_MAX - 1);
+        relpath[PATH_MAX - 1] = '\0';
+    }
+
+    int src_fd = openat(base_fd, relpath, O_RDONLY);
+    if (src_fd == -1) {
+        fprintf(stderr, "RESTORE: 경고: 백업 위한 파일 %s 열기 불가: %s\n", relpath, strerror(errno));
+        return;
+    }
+
+    //백업 파일 생성 ??(O_EXCL을 사용하여 경합 방지)
+    int dest_fd = open(backup_filepath, O_WRONLY | O_CREAT | O_EXCL, 0600);
+    if (dest_fd == -1) {
+        close(src_fd);
+        fprintf(stderr, "RESTORE: 경고: 백업파일 생성 불가 %s: %s\n", backup_filepath, strerror(errno));
+        return;
+    }
+
+    //데이터 복사
+    if (copy_file_data(src_fd, dest_fd) == 0) {
+        fprintf(stderr, "RESTORE: 오리지널 파일 백업: %s\n", path);
+    } else {
+        // 복사 실패 시 생성된 파일 삭제
+        unlink(backup_filepath);
+        fprintf(stderr, "RESTORE: 백업 파일 쓰기 에러: %s\n", path);
+    }
+    close(src_fd);
+    close(dest_fd);
+
+    //시간 측정 결과 출력
+    gettimeofday(&end_time, NULL); 
+    long elapsed_us = (end_time.tv_sec - start_time.tv_sec) * 1000000L + 
+                      (end_time.tv_usec - start_time.tv_usec);
+    fprintf(stderr, "RESTORE: Backup/CoW time for %s: %ld us\n", path, elapsed_us);
 }
 
 void restore_backup_file(const char *path, int base_fd) {
