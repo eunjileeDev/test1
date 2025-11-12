@@ -7,10 +7,10 @@
 #include <unistd.h>
 #include <limits.h>
 
-//?? 전역 변수: 최종적으로 확인된 백업 디렉터리의 절대 경로
+//백업dir 주소(restore_init이 생성한) 저장
 static char g_backup_dir[PATH_MAX] = {0};
 
-//?? 파일 복사를 위한 내부 도우미 함수 (이후 구현)
+//파일 복사를 위한 함수 (이후 구현)
 static int copy_file_data(int src_fd, int dest_fd);
 
 // 백업 경로 설정 및 생성 함수 (초기화)
