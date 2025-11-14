@@ -53,7 +53,7 @@ int restore_init(const char *home_dir, const char *target_path) {
     return 0;
 }
 
-// 이후 구현할 함수 일단 정의
+// 백업파일 생성
 void restore_backup_on_write(const char *path, int base_fd) {
     //루트 디렉토리(/)자체는 백업하지 않게 함
     if (strcmp(path, "/") == 0) {

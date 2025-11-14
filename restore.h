@@ -1,5 +1,5 @@
-#ifndef restore_h
-#define restore_h
+#ifndef RESTORE_H
+#define RESTORE_H
 
 #include <stddef.h>
 
@@ -13,5 +13,6 @@ int restore_init(const char *home_dir, const char *target_path);
 /* CoW(Copy-on-write) 백업 함수
 - myfs_write에서 호출되어 파일이 변조 직전에 원본 백업*/
 void restore_backup_on_write(const char *path, int base_fd);
+void restore_backup_file(const char *path, int base_fd);
 
 #endif
