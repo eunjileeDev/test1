@@ -201,6 +201,9 @@ static int myfs_open(const char *path, struct fuse_file_info *fi) {
         }
     }
 
+    // [restore] O_TRUNC 플래그 제거: 파일 내용이 즉시 지워지는 것을 방지
+    fi->flags &= ~O_TRUNC; // <- [restore]추가
+
     int res;
     char relpath[PATH_MAX];
     get_relative_path(path, relpath);
@@ -255,6 +258,18 @@ static int myfs_write(const char *path, const char *buf, size_t size, off_t offs
     // [RESTORE] 백업 함수 호출(쓰기 직전의 원본 확보)
     restore_backup_on_write(path, base_fd);
     
+    // [restore] Truncation 및 fsync 실행 (CoW 직후 원본 지우고 동기화)
+    if (fi->flags & O_TRUNC) {
+        if (ftruncate(fi->fh, 0) == -1) {
+            fprintf(stderr, "RESTORE: Truncate failed after CoW prep.\n");
+        }
+        // fsync는 O_TRUNC 다음에 호출되어야 안전함
+        if (fsync(fi->fh) == -1) {
+            fprintf(stderr, "RESTORE: Warning: fsync failed during CoW prep.\n");
+        }
+        fi->flags &= ~O_TRUNC; // 플래그를 제거하여 다음 write에 영향 없도록
+    }
+
     // PID 획득
     struct fuse_context *context = fuse_get_context();
     pid_t current_pid = context->pid;
