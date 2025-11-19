@@ -35,7 +35,7 @@ int restore_init(const char *home_dir, const char *target_path) {
     // 권한: 0700 (소유자:rwx, 그룹:---, 기타:---)
     // -> 랜섬웨어 프로세스(다른 사용자)가 접근하지 못하도록 격리
     if (mkdir(backup_path, 0700) == -1 && errno != EEXIST) {
-        perror("RESTORE: Error creating restore_backup directory");
+        perror("RESTORE: restore_backup 디렉터리 생성 실패");
         return -1;
     }
 
